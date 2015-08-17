@@ -23,12 +23,14 @@ module ActiveModel
       attr_accessor :_cache_except
       attr_accessor :_cache_options
       attr_accessor :_cache_digest
+      attr_accessor :_traits
     end
 
     def self.inherited(base)
       base._attributes = self._attributes.try(:dup) || []
       base._attributes_keys = self._attributes_keys.try(:dup) || {}
       base._urls = []
+      base._traits = {}
       serializer_file = File.open(caller.first[/^[^:]+/])
       base._cache_digest = Digest::MD5.hexdigest(serializer_file.read)
       super
@@ -44,6 +46,10 @@ module ActiveModel
           object && object.read_attribute_for_serialization(attr)
         end unless method_defined?(attr) || _fragmented.respond_to?(attr)
       end
+    end
+
+    def self.trait(name, &definition)
+      @_traits[name] = definition
     end
 
     def self.attribute(attr, options = {})
@@ -124,6 +130,8 @@ module ActiveModel
           define_method scope_name, lambda { scope }
         end
       end
+
+      evaluate_trait_definitions(Array(options[:traits]))
     end
 
     def json_key
@@ -173,6 +181,19 @@ module ActiveModel
         elsif klass.superclass
           get_serializer_for(klass.superclass)
         end
+      end
+    end
+
+    private
+
+    def evaluate_trait_definitions(traits)
+      traits.each do |trait|
+        trait_definition = self.class._traits && self.class._traits[trait]
+        unless trait_definition
+          valid_traits = self.class._traits.keys
+          raise ArgumentError, "Unknown trait: #{trait}. Valid traits are: #{valid_traits}"
+        end
+        self.class.instance_eval(&trait_definition)
       end
     end
   end
